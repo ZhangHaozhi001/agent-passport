@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent Trust Passport — Terminal 3</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 880px; padding: 0 1rem; }
+  h1 { font-size: 1.6rem; } .card { border: 1px solid #ddd; border-radius: 12px; padding: 1rem 1.25rem; margin: 1rem 0; }
+  .ok { color: #0a7d2c; font-weight: 600; } .no { color: #b3261e; font-weight: 600; }
+  button { padding: .5rem 1rem; border-radius: 8px; border: 1px solid #888; background: #f6f6f6; cursor: pointer; }
+  code { background: #f0f0f0; padding: .1rem .3rem; border-radius: 4px; }
+  li { margin: .25rem 0; } .muted { color: #666; font-size: .9rem; }
+</style>
+</head>
+<body>
+<h1>🛂 Agent Trust Passport</h1>
+<p class="muted">Terminal 3 Build+Scale Agent Micro Grant — demo UI skeleton.
+  The live version talks to the passport service (T3N testnet backend);
+  this static skeleton mirrors the demo flow in <code>src/demo.ts</code>.</p>
+
+<div class="card">
+  <h2>1 · Identity</h2>
+  <p>Agent <strong>Research Agent 01</strong><br/>
+  DID <code>did:t3n:agent-research-01</code> · Owner <code>did:t3n:org-acme</code></p>
+</div>
+
+<div class="card">
+  <h2>2 · Attestation</h2>
+  <p>Capability <code>data.read</code> — issued by <code>did:t3n:auditor-trustco</code>
+  <span id="attState" class="ok">valid</span></p>
+  <button onclick="document.getElementById('attState').textContent='revoked';document.getElementById('attState').className='no'">Revoke attestation</button>
+</div>
+
+<div class="card">
+  <h2>3 · Delegation</h2>
+  <p><code>records.read</code> on <code>vault:customer-records</code>
+  <span id="delState" class="ok">active</span></p>
+  <button onclick="document.getElementById('delState').textContent='revoked';document.getElementById('delState').className='no'">Revoke delegation</button>
+</div>
+
+<div class="card">
+  <h2>4 · Verify before access</h2>
+  <button onclick="verify()">Run verification</button>
+  <p id="verdict" class="muted">Identity + attestation + delegation are all checked; any revocation fails the gate closed.</p>
+</div>
+
+<div class="card">
+  <h2>Audit trail</h2>
+  <ul id="audit">
+    <li>agent.registered — Research Agent 01</li>
+    <li>attestation.issued — data.read by auditor-trustco</li>
+    <li>delegation.granted — records.read on vault:customer-records</li>
+  </ul>
+</div>
+
+<script>
+function verify() {
+  const ok = document.getElementById('attState').textContent === 'valid'
+          && document.getElementById('delState').textContent === 'active';
+  const v = document.getElementById('verdict');
+  v.textContent = ok ? '✅ ALLOWED — all three checks passed' : '⛔ DENIED — a required credential is revoked';
+  v.className = ok ? 'ok' : 'no';
+  const li = document.createElement('li');
+  li.textContent = (ok ? 'access.verified' : 'access.denied') + ' — gate check from UI skeleton';
+  document.getElementById('audit').appendChild(li);
+}
+</script>
+</body>
+</html>
