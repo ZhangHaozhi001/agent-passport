@@ -97,13 +97,34 @@ behind the same `PassportBackend` interface.
 ```bash
 npm install
 npm run demo        # register → attest → delegate → verify ✓ → revoke delegation → verify ✗ → revoke attestation → verify ✗
-npm test            # 27 tests: every verify branch, expiry edges, audit-trail integrity
+npm test            # 46 tests: every verify branch, expiry edges, audit-trail integrity + the T3N adapter mapping (mock SDK)
 npm run typecheck
 ```
 
 Live testnet mode (milestone M2): claim a free API key at
 https://www.terminal3.io/claim-page, copy `.env.example` to `.env`, and set
 `T3N_API_KEY`. Grant participants receive fully subsidised T3 credits.
+
+**M2 status — adapter pre-built (2026-11-19), awaiting the API key.**
+`T3nBackend` (`src/t3n/adapter.ts`) is fully implemented against the
+installed SDK 5.31.0 types and unit-tested against a mock SDK
+(`src/t3n/mock.ts`): identity + attestations live in tenant KV maps,
+delegations map to the member-delegation document (one `BoundGrant` row
+per function via `fanOutGrant`, revocation via
+`removeMemberDelegationGrants` + a KV tombstone so the gate still reports
+`delegation_revoked`), and the node audit trail is exposed via
+`getAuditEvents`. Core logic and the demo page are untouched — only the
+`PassportBackend` implementation is new. Once the key is claimed, the
+remaining hookup is three steps:
+
+1. Set `T3N_API_KEY` (the key is the registered ETH wallet's private key;
+   it is shown once — hand it over via the Secure Vault, never in chat).
+2. Call `createT3nSession(loadT3nConfig())` → `{ backend, sessionDid }`
+   and pass `backend` to `new PassportService(backend)`.
+3. Run one live register→verify→revoke pass on testnet; on that first run
+   confirm the two items isolated as `TODO(M2-live)` in the adapter: the
+   map `visibility` string and tightening the map writer/reader ACLs from
+   `"all"`.
 
 ## Why Terminal 3
 
@@ -117,8 +138,9 @@ before an agent touches customer data.
 
 Phase 1 (this repo state): design + verified core module + runnable demo +
 full unit-test suite for the verify gate (milestone M1) + hosted interactive
-demo (milestone M3, link above). Live testnet wiring (M2) waits on a claimed
-testnet API key; the pitch video follows the milestones in `PLAN.md`.
+demo (milestone M3, link above) + the T3N backend implemented and
+mock-tested (milestone M2 pre-build — only the live run waits on a claimed
+testnet API key); the pitch video follows the milestones in `PLAN.md`.
 Submission deadline: **2026-12-24 23:59 CST**.
 
 ## License
