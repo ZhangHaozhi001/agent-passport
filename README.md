@@ -37,7 +37,46 @@ src/passport.ts         PassportService — the core logic (framework-free)
 src/backend.ts          PassportBackend interface + InMemoryBackend (demo/tests)
 src/t3n/adapter.ts      live T3N mapping: the exact @terminal3/t3n-sdk call per operation
 src/demo.ts             runnable end-to-end story (no network, no key needed)
+test/passport.test.ts   node:test suite — every verify branch, expiry edges, audit integrity
 ```
+
+```
+                 register        attest            delegate
+  owner / org ───────────►┌─────────────────┐◄─────────── data owner
+  auditor ───────────────►│ PassportService │◄─────────── (scoped grant)
+                          └────────┬────────┘
+                                   │ verifyAccess (fail-closed)
+              ┌────────────────────┼────────────────────┐
+              ▼                    ▼                    ▼
+         identity            attestation           delegation
+         did:t3n:…        trusted issuer?      right resource +
+                          not revoked/expired  right function?
+                                               not revoked/expired
+                                   │
+                    all three valid ──► ALLOW + audit event
+                    any check fails ──► DENY (reason code) + audit event
+
+  PassportService talks only to the PassportBackend interface:
+  InMemoryBackend (demo/tests) · T3nBackend (testnet, milestone M2)
+```
+
+### Verify failure reasons
+
+`verifyAccess` denies with exactly one of these codes (`VerifyFailure` in
+`src/types.ts`), checked fail-closed in this order — identity, then
+attestation, then delegation; within a layer, *revoked* is reported
+before *expired*. An `expiresAt` in the past — or exactly equal to now —
+counts as expired; no `expiresAt` means valid until revoked.
+
+| Code | Meaning |
+|---|---|
+| `unknown_agent` | No passport registered for the agent DID |
+| `missing_attestation` | No attestation for the capability from a trusted issuer |
+| `attestation_revoked` | The attestation was revoked by its issuer |
+| `attestation_expired` | The attestation's `expiresAt` has passed |
+| `missing_delegation` | No grant covers this action on this resource |
+| `delegation_revoked` | The grant was revoked by the resource owner |
+| `delegation_expired` | The grant's `expiresAt` has passed |
 
 The service talks only to the `PassportBackend` interface, so the identical
 logic runs in-memory for the demo and on the T3N testnet (TEE nodes,
@@ -47,7 +86,8 @@ wallet-SIWE auth, encrypted sessions) for the real thing.
 
 ```bash
 npm install
-npm run demo        # register → attest → delegate → verify ✓ → revoke → verify ✗
+npm run demo        # register → attest → delegate → verify ✓ → revoke delegation → verify ✗ → revoke attestation → verify ✗
+npm test            # 27 tests: every verify branch, expiry edges, audit-trail integrity
 npm run typecheck
 ```
 
@@ -66,7 +106,8 @@ before an agent touches customer data.
 ## Status
 
 Phase 1 (this repo state): design + verified core module + runnable demo +
-UI skeleton. Live testnet wiring, hosted demo and the pitch video follow
+UI skeleton + full unit-test suite for the verify gate (milestone M1).
+Live testnet wiring, hosted demo and the pitch video follow
 the milestones in `PLAN.md`. Submission deadline: **2026-12-24 23:59 CST**.
 
 ## License
