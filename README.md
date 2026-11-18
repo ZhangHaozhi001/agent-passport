@@ -31,7 +31,10 @@ the gate — that revocation demo is the heart of the pitch video.
 ## Architecture
 
 ```
-web/index.html          demo UI: passport card, revoke buttons, gate verdict, audit list
+web/index.html          interactive demo UI (live on GitHub Pages): passport state,
+                        revoke buttons, gate verdict with reason codes, audit trail;
+                        runs a browser port of PassportService — same logic as src/
+docs/index.html         GitHub Pages copy of web/index.html (keep in sync)
 src/types.ts            identity / attestation / delegation / verify / audit types
 src/passport.ts         PassportService — the core logic (framework-free)
 src/backend.ts          PassportBackend interface + InMemoryBackend (demo/tests)
@@ -84,6 +87,13 @@ wallet-SIWE auth, encrypted sessions) for the real thing.
 
 ## Run it
 
+**Live demo:** https://zhanghaozhi001.github.io/agent-passport/ — the full
+story in the browser (verify ✓ → revoke delegation → verify ✗
+`delegation_revoked` → revoke attestation → verify ✗ `attestation_revoked`),
+with the audit trail written live. It runs the same gate logic as the code
+below, on the in-memory backend; the T3N testnet backend (M2) swaps in
+behind the same `PassportBackend` interface.
+
 ```bash
 npm install
 npm run demo        # register → attest → delegate → verify ✓ → revoke delegation → verify ✗ → revoke attestation → verify ✗
@@ -106,9 +116,10 @@ before an agent touches customer data.
 ## Status
 
 Phase 1 (this repo state): design + verified core module + runnable demo +
-UI skeleton + full unit-test suite for the verify gate (milestone M1).
-Live testnet wiring, hosted demo and the pitch video follow
-the milestones in `PLAN.md`. Submission deadline: **2026-12-24 23:59 CST**.
+full unit-test suite for the verify gate (milestone M1) + hosted interactive
+demo (milestone M3, link above). Live testnet wiring (M2) waits on a claimed
+testnet API key; the pitch video follows the milestones in `PLAN.md`.
+Submission deadline: **2026-12-24 23:59 CST**.
 
 ## License
 

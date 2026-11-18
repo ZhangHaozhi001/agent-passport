@@ -1,70 +1,591 @@
 <!doctype html>
+<!-- Agent Trust Passport — interactive demo (milestone M3).
+     Source of truth: web/index.html in this repo. docs/index.html is the
+     GitHub Pages copy of the same file — keep the two in sync.
+     The verification logic below is a line-by-line browser port of
+     src/passport.ts running on a port of src/backend.ts (InMemoryBackend);
+     it is the same logic `npm run demo` and `npm test` exercise. -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Agent Trust Passport — Terminal 3</title>
+<title>Agent Trust Passport — Live Demo · Terminal 3 (T3N)</title>
+<meta name="description" content="Interactive demo of the Agent Trust Passport: did:t3n identity + capability attestation + scoped delegation, verified fail-closed before access. Revoke any layer and the gate closes immediately." />
 <style>
-  body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 880px; padding: 0 1rem; }
-  h1 { font-size: 1.6rem; } .card { border: 1px solid #ddd; border-radius: 12px; padding: 1rem 1.25rem; margin: 1rem 0; }
-  .ok { color: #0a7d2c; font-weight: 600; } .no { color: #b3261e; font-weight: 600; }
-  button { padding: .5rem 1rem; border-radius: 8px; border: 1px solid #888; background: #f6f6f6; cursor: pointer; }
-  code { background: #f0f0f0; padding: .1rem .3rem; border-radius: 4px; }
-  li { margin: .25rem 0; } .muted { color: #666; font-size: .9rem; }
+  :root {
+    --ink: #17202b; --muted: #5b6b7d; --line: #d9e0e8; --bg: #f6f8fa;
+    --card: #ffffff; --accent: #2f5fd0; --accent-ink: #ffffff;
+    --ok: #0a7d2c; --ok-bg: #e7f6ec; --no: #b3261e; --no-bg: #fdecea;
+    --warn: #8a6d00; --code-bg: #eef1f5;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+         margin: 0; background: var(--bg); color: var(--ink); line-height: 1.55; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 2rem 1rem 3rem; }
+  header h1 { font-size: 1.9rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
+  header .sub { color: var(--muted); margin: 0 0 .75rem; }
+  .zh { color: var(--muted); font-size: .92em; }
+  .pills { display: flex; flex-wrap: wrap; gap: .5rem; margin: .75rem 0 0; }
+  .pill { border: 1px solid var(--line); background: var(--card); border-radius: 999px;
+          padding: .2rem .7rem; font-size: .82rem; color: var(--muted); }
+  .pill strong { color: var(--ink); font-weight: 600; }
+  .pill.live { border-color: #b7dfc2; background: var(--ok-bg); color: var(--ok); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+          padding: 1.1rem 1.25rem; margin: 1rem 0; }
+  .card h2 { font-size: 1.12rem; margin: 0 0 .6rem; }
+  .card h2 .zh { font-weight: 400; }
+  code { background: var(--code-bg); padding: .08rem .35rem; border-radius: 4px;
+         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .86em;
+         word-break: break-all; }
+  .layers { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; }
+  @media (max-width: 720px) { .layers { grid-template-columns: 1fr; } }
+  .layer { border: 1px solid var(--line); border-radius: 10px; padding: .8rem .9rem; }
+  .layer h3 { margin: 0 0 .35rem; font-size: .98rem; }
+  .layer p { margin: 0; color: var(--muted); font-size: .9rem; }
+  ol.guide { margin: .4rem 0 0; padding-left: 1.4rem; }
+  ol.guide li { margin: .3rem 0; }
+  ol.guide li.done { color: var(--ok); }
+  ol.guide li.done::marker { content: "✓ "; font-weight: 700; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+  .state h3 { margin: .2rem 0 .45rem; font-size: .95rem; }
+  .state p, .state li { font-size: .92rem; }
+  .state ul { margin: .3rem 0; padding-left: 1.15rem; }
+  .status { font-weight: 700; }
+  .status.ok { color: var(--ok); } .status.no { color: var(--no); } .status.idle { color: var(--muted); }
+  .actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .4rem; }
+  button { padding: .55rem 1rem; border-radius: 8px; border: 1px solid #9fb0c3;
+           background: #f2f5f9; color: var(--ink); cursor: pointer; font-size: .93rem; }
+  button:hover:not(:disabled) { background: #e6edf6; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  button.primary:hover:not(:disabled) { background: #2853b4; }
+  button.danger { border-color: #d8a09c; background: #fdf1f0; }
+  button.danger:hover:not(:disabled) { background: #fbe3e1; }
+  button .zh { color: inherit; opacity: .75; font-size: .85em; }
+  #verdict { border-radius: 10px; padding: .9rem 1rem; margin-top: .8rem; border: 1px solid var(--line); }
+  #verdict.idle { color: var(--muted); }
+  #verdict.ok { background: var(--ok-bg); border-color: #b7dfc2; }
+  #verdict.no { background: var(--no-bg); border-color: #f0c4c0; }
+  #verdict .vhead { font-size: 1.15rem; font-weight: 800; letter-spacing: .01em; }
+  #verdict.ok .vhead { color: var(--ok); } #verdict.no .vhead { color: var(--no); }
+  #verdict p { margin: .3rem 0 0; font-size: .93rem; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(179,38,30,.45); } 100% { box-shadow: 0 0 0 14px rgba(179,38,30,0); } }
+  @keyframes pulseOk { 0% { box-shadow: 0 0 0 0 rgba(10,125,44,.4); } 100% { box-shadow: 0 0 0 14px rgba(10,125,44,0); } }
+  #verdict.flash-no { animation: pulse .8s ease-out 2; }
+  #verdict.flash-ok { animation: pulseOk .8s ease-out 2; }
+  .auditbox { max-height: 340px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; }
+  table.audit { border-collapse: collapse; width: 100%; font-size: .86rem; }
+  table.audit th, table.audit td { text-align: left; padding: .42rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.audit th { color: var(--muted); font-weight: 600; background: #fbfcfd; position: sticky; top: 0; }
+  table.audit td.seq { color: var(--muted); white-space: nowrap; }
+  table.audit td.kind { white-space: nowrap; font-weight: 600; }
+  tr.k-verified td.kind { color: var(--ok); } tr.k-denied td.kind { color: var(--no); }
+  table.codes { border-collapse: collapse; width: 100%; font-size: .9rem; margin-top: .4rem; }
+  table.codes th, table.codes td { text-align: left; padding: .35rem .55rem; border-bottom: 1px solid var(--line); }
+  .muted { color: var(--muted); } .small { font-size: .88rem; }
+  footer { color: var(--muted); font-size: .88rem; margin-top: 1.5rem; }
+  a { color: var(--accent); }
 </style>
 </head>
 <body>
-<h1>🛂 Agent Trust Passport</h1>
-<p class="muted">Terminal 3 Build+Scale Agent Micro Grant — demo UI skeleton.
-  The live version talks to the passport service (T3N testnet backend);
-  this static skeleton mirrors the demo flow in <code>src/demo.ts</code>.</p>
+<div class="wrap">
 
-<div class="card">
-  <h2>1 · Identity</h2>
-  <p>Agent <strong>Research Agent 01</strong><br/>
-  DID <code>did:t3n:agent-research-01</code> · Owner <code>did:t3n:org-acme</code></p>
-</div>
+<header>
+  <h1>🛂 Agent Trust Passport</h1>
+  <p class="sub">Verifiable agent identity, capability attestations and scoped delegation on
+     <strong>Terminal 3 Network (T3N)</strong> — checked together, fail-closed, before access.<br/>
+     <span class="zh">给 AI 智能体的「信任护照」：身份 + 能力证明 + 限域授权三层齐备才放行，撤销任意一层，大门立即关闭。</span></p>
+  <div class="pills">
+    <span class="pill"><strong>Terminal 3</strong> Build+Scale Agent Micro Grant</span>
+    <span class="pill live">● Interactive demo — runs the real gate logic in your browser</span>
+    <span class="pill">Backend today: <strong>InMemoryBackend</strong> (browser port) · T3N testnet wiring = milestone M2</span>
+  </div>
+</header>
 
-<div class="card">
-  <h2>2 · Attestation</h2>
-  <p>Capability <code>data.read</code> — issued by <code>did:t3n:auditor-trustco</code>
-  <span id="attState" class="ok">valid</span></p>
-  <button onclick="document.getElementById('attState').textContent='revoked';document.getElementById('attState').className='no'">Revoke attestation</button>
-</div>
+<section class="card">
+  <h2>The problem <span class="zh">/ 问题</span></h2>
+  <p>AI agents are starting to act on our behalf — reading data, calling tools, spending money — but a
+     resource owner has no standard way to ask, <em>before</em> granting access: Who is this agent?
+     Who vouches for what it can do? Did I actually delegate this to it — and can I take that back?</p>
+  <div class="layers">
+    <div class="layer"><h3>1 · Identity <span class="zh">身份</span></h3>
+      <p>A DID the agent authenticated with — <code>did:t3n:…</code> on the live T3N backend.</p></div>
+    <div class="layer"><h3>2 · Attestation <span class="zh">能力证明</span></h3>
+      <p>A capability claim issued by a trusted third party. Revocable and expirable.</p></div>
+    <div class="layer"><h3>3 · Delegation <span class="zh">限域授权</span></h3>
+      <p>A scoped grant from the resource owner: one resource, named functions only, revocable at any time.</p></div>
+  </div>
+  <p class="small muted">Every registration, grant, revocation and gate decision is written to an
+     <strong>audit trail</strong> <span class="zh">（全程审计留痕）</span>. Revoking <em>either</em> the attestation
+     <em>or</em> the delegation immediately closes the gate — try it below.</p>
+</section>
 
-<div class="card">
-  <h2>3 · Delegation</h2>
-  <p><code>records.read</code> on <code>vault:customer-records</code>
-  <span id="delState" class="ok">active</span></p>
-  <button onclick="document.getElementById('delState').textContent='revoked';document.getElementById('delState').className='no'">Revoke delegation</button>
-</div>
+<section class="card">
+  <h2>The story <span class="zh">/ 演示路线</span></h2>
+  <p class="small">Same story as <code>src/demo.ts</code> (<code>npm run demo</code>): an org registers a research
+     agent, an auditor attests its <code>data.read</code> capability, and the data owner delegates
+     <code>records.read</code> on one vault. Then watch the gate close — twice, for two different reasons.</p>
+  <ol class="guide" id="guide">
+    <li id="g1">Register the agent → issue attestation → grant delegation <span class="zh">（注册 → 发证明 → 给授权）</span></li>
+    <li id="g2"><strong>Verify access → ALLOWED</strong> — all three layers valid <span class="zh">（三层齐备，放行）</span></li>
+    <li id="g3">Revoke the delegation → verify again → <strong>DENIED · <code>delegation_revoked</code></strong> <span class="zh">（撤授权，立即被拒）</span></li>
+    <li id="g4">Grant a fresh delegation, revoke the attestation → verify → <strong>DENIED · <code>attestation_revoked</code></strong> <span class="zh">（撤证明，同样立即被拒）</span></li>
+  </ol>
+  <div class="actions">
+    <button class="primary" id="btnPlay">▶ Play the full story <span class="zh">一键播放完整故事</span></button>
+    <button id="btnResetTop">Reset <span class="zh">重置</span></button>
+  </div>
+</section>
 
-<div class="card">
-  <h2>4 · Verify before access</h2>
-  <button onclick="verify()">Run verification</button>
-  <p id="verdict" class="muted">Identity + attestation + delegation are all checked; any revocation fails the gate closed.</p>
-</div>
+<section class="card">
+  <h2>Try the gate <span class="zh">/ 亲手试一试</span></h2>
+  <div class="grid">
+    <div class="state">
+      <h3>Passport state <span class="zh">护照状态</span></h3>
+      <p><strong>Identity</strong> — <span id="idState" class="status idle">not registered</span><br/>
+         Agent <strong>Research Agent 01</strong> · <code>did:t3n:agent-research-01</code><br/>
+         Owner <code>did:t3n:org-acme</code></p>
+      <p><strong>Attestation</strong> — <span id="attState" class="status idle">not issued</span><br/>
+         Capability <code>data.read</code> · Issuer <code>did:t3n:auditor-trustco</code>
+         <span id="attId" class="muted small"></span></p>
+      <p><strong>Delegations</strong> — <code>records.read</code> on <code>vault:customer-records</code></p>
+      <ul id="delList"><li class="muted">none granted yet</li></ul>
+    </div>
+    <div>
+      <h3 style="margin:.2rem 0 .45rem;font-size:.95rem;">Actions <span class="zh">操作</span></h3>
+      <div class="actions" style="margin-top:0;">
+        <button id="btnRegister">1 · Register agent</button>
+        <button id="btnAttest">2 · Issue attestation</button>
+        <button id="btnGrant">3 · Grant delegation</button>
+      </div>
+      <div class="actions">
+        <button id="btnVerify" class="primary">Verify access <span class="zh">校验放行</span></button>
+        <button id="btnRevokeDel" class="danger">Revoke delegation <span class="zh">撤授权</span></button>
+        <button id="btnRevokeAtt" class="danger">Revoke attestation <span class="zh">撤证明</span></button>
+        <button id="btnReset">Reset</button>
+      </div>
+      <p class="small muted">The gate request is always the same: agent <code>did:t3n:agent-research-01</code>
+         wants <code>records.read</code> on <code>vault:customer-records</code>, capability <code>data.read</code>,
+         trusting issuer <code>did:t3n:auditor-trustco</code>. Press <em>Verify access</em> at any point —
+         even before registering — and the gate answers fail-closed.</p>
+    </div>
+  </div>
+  <div id="verdict" class="idle">
+    <span class="vhead">No verification yet</span>
+    <p>Identity + attestation + delegation are all checked, in that order; any failure denies access with a reason code.</p>
+  </div>
+</section>
 
-<div class="card">
-  <h2>Audit trail</h2>
-  <ul id="audit">
-    <li>agent.registered — Research Agent 01</li>
-    <li>attestation.issued — data.read by auditor-trustco</li>
-    <li>delegation.granted — records.read on vault:customer-records</li>
-  </ul>
+<section class="card">
+  <h2>Audit trail <span class="zh">/ 审计轨迹</span></h2>
+  <p class="small muted">Every state change and every gate decision, in order — the exact events
+     <code>PassportService</code> records (on T3N this maps to <code>client.getAuditEvents()</code> / the org activity log).</p>
+  <div class="auditbox">
+    <table class="audit">
+      <thead><tr><th>#</th><th>Time</th><th>Event</th><th>Actor → Subject</th><th>Detail</th></tr></thead>
+      <tbody id="auditBody">
+        <tr><td colspan="5" class="muted">Nothing yet — register the agent to begin.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>How the gate decides <span class="zh">/ 判定规则</span></h2>
+  <p class="small"><code>verifyAccess</code> checks fail-closed in this order — <strong>identity → attestation →
+     delegation</strong>; within a layer, <em>revoked</em> is reported before <em>expired</em>. An
+     <code>expiresAt</code> in the past — or exactly equal to now — counts as expired; no
+     <code>expiresAt</code> means valid until revoked. Per layer, the <em>first</em> matching record is the
+     one evaluated (behaviour pinned by the M1 test suite; see <code>M1-REPORT.md</code>).</p>
+  <table class="codes">
+    <thead><tr><th>Reason code</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>unknown_agent</code></td><td>No passport registered for the agent DID</td></tr>
+      <tr><td><code>missing_attestation</code></td><td>No attestation for the capability from a trusted issuer</td></tr>
+      <tr><td><code>attestation_revoked</code></td><td>The attestation was revoked by its issuer</td></tr>
+      <tr><td><code>attestation_expired</code></td><td>The attestation's <code>expiresAt</code> has passed</td></tr>
+      <tr><td><code>missing_delegation</code></td><td>No grant covers this action on this resource</td></tr>
+      <tr><td><code>delegation_revoked</code></td><td>The grant was revoked by the resource owner</td></tr>
+      <tr><td><code>delegation_expired</code></td><td>The grant's <code>expiresAt</code> has passed</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>What changes in M2 — live T3N testnet <span class="zh">/ M2 里程碑：接真实测试网</span></h2>
+  <p class="small">This page runs a browser port of <code>PassportService</code> on an in-memory backend — the
+     identical logic to <code>src/passport.ts</code> / <code>src/backend.ts</code>, and the same story the
+     27-test suite in <code>test/passport.test.ts</code> pins down. The service talks only to the
+     <code>PassportBackend</code> interface, so <strong>M2 swaps only the backend</strong>: <code>InMemoryBackend</code>
+     is replaced by <code>T3nBackend</code> (<code>src/t3n/adapter.ts</code>, <code>@terminal3/t3n-sdk</code> 5.31.0),
+     and this page then reads live testnet state instead of the in-browser store. The gate logic, the check
+     order and the reason codes do not change.</p>
+  <table class="codes">
+    <thead><tr><th>Operation</th><th>T3N call (M2)</th></tr></thead>
+    <tbody>
+      <tr><td>Register agent</td><td><code>client.authenticate()</code> → tenant DID, or <code>client.createAgent(orgDid, name)</code></td></tr>
+      <tr><td>Issue / revoke attestation</td><td><code>tenant.maps</code> — map <code>passport:attestations</code> (issuer-only writers); revocation = entry update with <code>revokedAt</code></td></tr>
+      <tr><td>Grant delegation</td><td><code>client.updateMemberDelegation([grant])</code> — one grant per function</td></tr>
+      <tr><td>Revoke delegation</td><td><code>client.revokeMemberDelegationForOrg(orgTid)</code>, or an update removing the function rows</td></tr>
+      <tr><td>Verify access</td><td><code>client.getMemberDelegation()</code> + <code>discoverCheckDelegation()</code> + attestation map read</td></tr>
+      <tr><td>Audit trail</td><td><code>client.getAuditEvents()</code> / <code>client.getActivityLog()</code></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<footer>
+  <p>Agent Trust Passport — built for the Terminal 3 Build+Scale Agent Micro Grant.
+     Source: <a href="https://github.com/ZhangHaozhi001/agent-passport">github.com/ZhangHaozhi001/agent-passport</a> ·
+     run the same story locally with <code>npm run demo</code>, verify every branch with <code>npm test</code>.</p>
+</footer>
+
 </div>
 
 <script>
-function verify() {
-  const ok = document.getElementById('attState').textContent === 'valid'
-          && document.getElementById('delState').textContent === 'active';
-  const v = document.getElementById('verdict');
-  v.textContent = ok ? '✅ ALLOWED — all three checks passed' : '⛔ DENIED — a required credential is revoked';
-  v.className = ok ? 'ok' : 'no';
-  const li = document.createElement('li');
-  li.textContent = (ok ? 'access.verified' : 'access.denied') + ' — gate check from UI skeleton';
-  document.getElementById('audit').appendChild(li);
+"use strict";
+/* ════════════════════════════════════════════════════════════════════
+   Core port — DOM-free. A line-by-line browser port of src/backend.ts
+   (InMemoryBackend) and src/passport.ts (PassportService). The TypeScript
+   service is async only because the backend interface is promise-based;
+   semantics — including Map insertion order, first-match evaluation and
+   every detail string — are identical.
+   ════════════════════════════════════════════════════════════════════ */
+const nowISO = () => new Date().toISOString();
+const isPast = (iso) => iso !== undefined && Date.parse(iso) <= Date.now();
+const newId = () =>
+  (crypto.randomUUID ? crypto.randomUUID() : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0, v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  }));
+
+class InMemoryBackend {
+  constructor() {
+    this.agents = new Map();
+    this.attestations = new Map();
+    this.delegations = new Map();
+  }
+  putAgent(agent) { this.agents.set(agent.did, agent); }
+  getAgent(did) { return this.agents.get(did); }
+  putAttestation(attestation) { this.attestations.set(attestation.id, attestation); }
+  listAttestations(subjectDid) {
+    return [...this.attestations.values()].filter((a) => a.subjectDid === subjectDid);
+  }
+  putDelegation(grant) { this.delegations.set(grant.id, grant); }
+  listDelegations(granteeDid, resource) {
+    return [...this.delegations.values()].filter(
+      (g) => g.granteeDid === granteeDid && g.resource === resource,
+    );
+  }
 }
+
+class PassportService {
+  constructor(backend) {
+    this.backend = backend;
+    this.audit = [];
+    this.seq = 0;
+    this.issuedAttestations = new Map();
+    this.issuedGrants = new Map();
+  }
+  log(kind, actorDid, detail, subjectDid) {
+    this.audit.push({ seq: ++this.seq, at: nowISO(), kind, actorDid, subjectDid, detail });
+  }
+  getAuditTrail() { return this.audit; }
+
+  registerAgent(input) {
+    const agent = { ...input, createdAt: nowISO() };
+    this.backend.putAgent(agent);
+    this.log("agent.registered", input.ownerDid, `Registered agent "${input.name}"`, input.did);
+    return agent;
+  }
+
+  issueAttestation(input) {
+    const attestation = { id: newId(), issuedAt: nowISO(), ...input };
+    this.backend.putAttestation(attestation);
+    this.issuedAttestations.set(attestation.id, attestation);
+    this.log("attestation.issued", input.issuerDid, `Attested capability "${input.capability}"`, input.subjectDid);
+    return attestation;
+  }
+
+  revokeAttestation(id, revokerDid) {
+    const target = this.issuedAttestations.get(id);
+    if (!target) throw new Error(`unknown attestation: ${id}`);
+    target.revokedAt = nowISO();
+    this.backend.putAttestation(target);
+    this.log("attestation.revoked", revokerDid, `Revoked attestation ${id}`, target.subjectDid);
+  }
+
+  grantDelegation(input) {
+    const grant = { id: newId(), grantedAt: nowISO(), ...input };
+    this.backend.putDelegation(grant);
+    this.issuedGrants.set(grant.id, grant);
+    this.log("delegation.granted", input.grantorDid, `Granted ${input.functions.join(", ")} on ${input.resource}`, input.granteeDid);
+    return grant;
+  }
+
+  revokeDelegation(id, revokerDid) {
+    const grant = this.issuedGrants.get(id);
+    if (!grant) throw new Error(`unknown delegation: ${id}`);
+    grant.revokedAt = nowISO();
+    this.backend.putDelegation(grant);
+    this.log("delegation.revoked", revokerDid, `Revoked delegation ${id}`, grant.granteeDid);
+  }
+
+  verifyAccess(req) {
+    const checkedAt = nowISO();
+    const deny = (reason, detail) => {
+      this.log("access.denied", req.agentDid, `${reason}: ${detail}`);
+      return { allowed: false, reason, detail, checkedAt };
+    };
+
+    const agent = this.backend.getAgent(req.agentDid);
+    if (!agent) return deny("unknown_agent", `No passport registered for ${req.agentDid}`);
+
+    const attestations = this.backend.listAttestations(req.agentDid).filter(
+      (a) => a.capability === req.capability && req.trustedIssuers.includes(a.issuerDid),
+    );
+    if (attestations.length === 0)
+      return deny("missing_attestation", `No attestation for "${req.capability}" from a trusted issuer`);
+    const attestation = attestations[0];
+    if (attestation.revokedAt)
+      return deny("attestation_revoked", `Attestation ${attestation.id} was revoked`);
+    if (isPast(attestation.expiresAt))
+      return deny("attestation_expired", `Attestation ${attestation.id} has expired`);
+
+    const delegations = this.backend.listDelegations(req.agentDid, req.resource).filter(
+      (g) => g.functions.includes(req.action),
+    );
+    if (delegations.length === 0)
+      return deny("missing_delegation", `No delegation covering "${req.action}" on ${req.resource}`);
+    const delegation = delegations[0];
+    if (delegation.revokedAt)
+      return deny("delegation_revoked", `Delegation ${delegation.id} was revoked`);
+    if (isPast(delegation.expiresAt))
+      return deny("delegation_expired", `Delegation ${delegation.id} has expired`);
+
+    this.log("access.verified", req.agentDid, `Allowed "${req.action}" on ${req.resource} (capability "${req.capability}")`);
+    return {
+      allowed: true,
+      detail: `Identity, attestation (${attestation.id}) and delegation (${delegation.id}) all valid`,
+      checkedAt,
+    };
+  }
+}
+
+/* Demo story constants — identical to src/demo.ts. */
+const OWNER = "did:t3n:org-acme";
+const AUDITOR = "did:t3n:auditor-trustco";
+const AGENT = "did:t3n:agent-research-01";
+const RESOURCE = "vault:customer-records";
+const REQUEST = {
+  agentDid: AGENT,
+  capability: "data.read",
+  resource: RESOURCE,
+  action: "records.read",
+  trustedIssuers: [AUDITOR],
+};
+
+/* ════════════════════════════════════════════════════════════════════
+   UI wiring — every button performs exactly one PassportService call
+   with the src/demo.ts arguments; nothing is faked at the UI layer.
+   ════════════════════════════════════════════════════════════════════ */
+const $ = (id) => document.getElementById(id);
+const shortId = (id) => id.slice(0, 8) + "…";
+const timeOf = (iso) => new Date(iso).toLocaleTimeString([], { hour12: false });
+
+let svc, attestation, grants, registered, lastVerdict, seen;
+
+function resetState() {
+  svc = new PassportService(new InMemoryBackend());
+  attestation = null;
+  grants = [];
+  registered = false;
+  lastVerdict = null;
+  seen = { allowed: false, deniedDelegation: false, deniedAttestation: false };
+  render();
+}
+
+function doRegister() {
+  svc.registerAgent({ did: AGENT, name: "Research Agent 01", ownerDid: OWNER });
+  registered = true;
+  render();
+}
+function doAttest() {
+  attestation = svc.issueAttestation({ capability: "data.read", issuerDid: AUDITOR, subjectDid: AGENT });
+  render();
+}
+function doGrant() {
+  grants.push(svc.grantDelegation({
+    grantorDid: OWNER, granteeDid: AGENT, resource: RESOURCE, functions: ["records.read"],
+  }));
+  render();
+}
+function doRevokeDelegation() {
+  const active = [...grants].reverse().find((g) => !g.revokedAt);
+  if (active) svc.revokeDelegation(active.id, OWNER);
+  render();
+}
+function doRevokeAttestation() {
+  if (attestation && !attestation.revokedAt) svc.revokeAttestation(attestation.id, AUDITOR);
+  render();
+}
+function doVerify() {
+  lastVerdict = svc.verifyAccess(REQUEST);
+  if (lastVerdict.allowed) seen.allowed = true;
+  if (!lastVerdict.allowed && lastVerdict.reason === "delegation_revoked") seen.deniedDelegation = true;
+  if (!lastVerdict.allowed && lastVerdict.reason === "attestation_revoked") seen.deniedAttestation = true;
+  render(true);
+}
+
+function render(flashVerdict = false) {
+  // Identity / attestation state
+  const idState = $("idState");
+  idState.textContent = registered ? "registered ✓" : "not registered";
+  idState.className = "status " + (registered ? "ok" : "idle");
+  const attState = $("attState");
+  if (!attestation) { attState.textContent = "not issued"; attState.className = "status idle"; }
+  else if (attestation.revokedAt) { attState.textContent = "revoked"; attState.className = "status no"; }
+  else { attState.textContent = "valid"; attState.className = "status ok"; }
+  $("attId").textContent = attestation ? ` · id ${shortId(attestation.id)}` : "";
+
+  // Delegations list
+  const delList = $("delList");
+  delList.replaceChildren();
+  if (grants.length === 0) {
+    const li = document.createElement("li");
+    li.className = "muted"; li.textContent = "none granted yet";
+    delList.appendChild(li);
+  } else {
+    for (const g of grants) {
+      const li = document.createElement("li");
+      const code = document.createElement("code"); code.textContent = "records.read";
+      const st = document.createElement("span");
+      st.className = "status " + (g.revokedAt ? "no" : "ok");
+      st.textContent = g.revokedAt ? "revoked" : "active";
+      li.append(code, document.createTextNode(` — grant ${shortId(g.id)} · `), st);
+      delList.appendChild(li);
+    }
+  }
+
+  // Buttons
+  $("btnRegister").disabled = registered;
+  $("btnAttest").disabled = !!attestation;
+  $("btnRevokeDel").disabled = !grants.some((g) => !g.revokedAt);
+  $("btnRevokeAtt").disabled = !attestation || !!attestation.revokedAt;
+
+  // Guide checklist
+  $("g1").classList.toggle("done", registered && !!attestation && grants.length > 0);
+  $("g2").classList.toggle("done", seen.allowed);
+  $("g3").classList.toggle("done", seen.deniedDelegation);
+  $("g4").classList.toggle("done", seen.deniedAttestation);
+
+  // Verdict
+  const v = $("verdict");
+  v.classList.remove("flash-ok", "flash-no");
+  if (!lastVerdict) {
+    v.className = "idle";
+    v.replaceChildren();
+    const head = document.createElement("span"); head.className = "vhead"; head.textContent = "No verification yet";
+    const p = document.createElement("p");
+    p.textContent = "Identity + attestation + delegation are all checked, in that order; any failure denies access with a reason code.";
+    v.append(head, p);
+  } else if (lastVerdict.allowed) {
+    v.className = "ok";
+    v.replaceChildren();
+    const head = document.createElement("span"); head.className = "vhead"; head.textContent = "✅ ALLOWED";
+    const p = document.createElement("p"); p.textContent = lastVerdict.detail;
+    const t = document.createElement("p"); t.className = "muted small";
+    t.textContent = `checked at ${timeOf(lastVerdict.checkedAt)}`;
+    v.append(head, p, t);
+  } else {
+    v.className = "no";
+    v.replaceChildren();
+    const head = document.createElement("span"); head.className = "vhead";
+    head.append(document.createTextNode("⛔ DENIED — "));
+    const code = document.createElement("code"); code.textContent = lastVerdict.reason;
+    head.appendChild(code);
+    const p = document.createElement("p"); p.textContent = lastVerdict.detail;
+    const t = document.createElement("p"); t.className = "muted small";
+    t.textContent = `checked at ${timeOf(lastVerdict.checkedAt)}`;
+    v.append(head, p, t);
+  }
+  if (flashVerdict && lastVerdict) {
+    void v.offsetWidth; // restart the CSS animation
+    v.classList.add(lastVerdict.allowed ? "flash-ok" : "flash-no");
+  }
+
+  // Audit trail
+  const body = $("auditBody");
+  body.replaceChildren();
+  const trail = svc.getAuditTrail();
+  if (trail.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 5; td.className = "muted"; td.textContent = "Nothing yet — register the agent to begin.";
+    tr.appendChild(td); body.appendChild(tr);
+  } else {
+    for (const e of trail) {
+      const tr = document.createElement("tr");
+      if (e.kind === "access.verified") tr.className = "k-verified";
+      if (e.kind === "access.denied") tr.className = "k-denied";
+      const cells = [
+        `#${e.seq}`,
+        timeOf(e.at),
+        e.kind,
+        e.subjectDid ? `${e.actorDid} → ${e.subjectDid}` : e.actorDid,
+        e.detail,
+      ];
+      cells.forEach((text, i) => {
+        const td = document.createElement("td");
+        if (i === 0) td.className = "seq";
+        if (i === 2) td.className = "kind";
+        td.textContent = text;
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    }
+  }
+  const box = document.querySelector(".auditbox");
+  box.scrollTop = box.scrollHeight;
+}
+
+/* Play the src/demo.ts story end-to-end, one service call at a time. */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let playing = false;
+async function playStory() {
+  if (playing) return;
+  playing = true;
+  const buttons = document.querySelectorAll("button");
+  buttons.forEach((b) => (b.disabled = true));
+  try {
+    resetState();
+    await sleep(450); doRegister();
+    await sleep(550); doAttest();
+    await sleep(550); doGrant();
+    await sleep(550); doVerify();          // ALLOWED
+    await sleep(1100); doRevokeDelegation();
+    await sleep(700); doVerify();          // DENIED · delegation_revoked
+    await sleep(1100); doGrant();
+    await sleep(550); doRevokeAttestation();
+    await sleep(700); doVerify();          // DENIED · attestation_revoked
+  } finally {
+    playing = false;
+    buttons.forEach((b) => (b.disabled = false));
+    render();
+  }
+}
+
+$("btnRegister").addEventListener("click", doRegister);
+$("btnAttest").addEventListener("click", doAttest);
+$("btnGrant").addEventListener("click", doGrant);
+$("btnVerify").addEventListener("click", doVerify);
+$("btnRevokeDel").addEventListener("click", doRevokeDelegation);
+$("btnRevokeAtt").addEventListener("click", doRevokeAttestation);
+$("btnReset").addEventListener("click", resetState);
+$("btnResetTop").addEventListener("click", resetState);
+$("btnPlay").addEventListener("click", playStory);
+
+resetState();
 </script>
 </body>
 </html>
